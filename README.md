@@ -2,18 +2,18 @@
 
 App web gratuita y 100% en el navegador (sin backend, sin login, sin costos) para categorizar los gastos de tu tarjeta de crédito y proyectar cuánto vas a pagar en cuotas los próximos meses.
 
-**Tus datos nunca salen de tu computadora**: el archivo que subís se procesa localmente con JavaScript; no hay ningún servidor que reciba esa información.
+**Tus datos nunca salen de tu computadora**: el archivo que subes se procesa localmente con JavaScript; no hay ningún servidor que reciba esa información.
 
 ## Uso
 
-1. Exportá el resumen de tu tarjeta como CSV o Excel desde el homebanking de tu banco.
-2. Abrí `index.html` (o la URL publicada) y subí el archivo.
-3. Confirmá qué columna corresponde a Fecha, Descripción y Monto (la app intenta adivinarlo).
+1. Exporta el resumen de tu tarjeta como CSV o Excel desde el homebanking de tu banco.
+2. Abre `index.html` (o la URL publicada) y sube el archivo.
+3. Confirma qué columna corresponde a Fecha, Descripción y Monto (la app intenta adivinarlo).
 4. Click en "Procesar gastos" para ver:
    - El resumen del mes por categoría.
    - La proyección de cuotas activas para los próximos meses.
 5. Los gastos sin categoría automática se pueden asignar manualmente — la próxima vez que subas un resumen con el mismo comercio, se va a categorizar solo.
-6. En "Gestionar categorías" podés agregar, editar o borrar categorías y sus palabras clave.
+6. En "Gestionar categorías" puedes agregar, editar o borrar categorías y sus palabras clave.
 
 ## Cómo funciona la categorización
 

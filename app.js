@@ -44,21 +44,49 @@ fileInput.addEventListener("change", (e) => {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (evt) => {
-    const data = new Uint8Array(evt.target.result);
-    const workbook = XLSX.read(data, { type: "array", cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: "yyyy-mm-dd" });
-    if (!rows.length) {
-      alert("El archivo no tiene filas.");
-      return;
+    try {
+      const bytes = new Uint8Array(evt.target.result);
+      // Muchos bancos exportan el "Excel" del resumen como una tabla HTML con extensión .xls,
+      // no como un archivo binario real. Hay que detectarlo y parsearlo distinto.
+      const prefix = new TextDecoder("utf-8").decode(bytes.slice(0, 512)).trim().toLowerCase();
+      const isHtml = prefix.startsWith("<") || prefix.includes("<html") || prefix.includes("<table");
+      const workbook = isHtml
+        ? XLSX.read(new TextDecoder("utf-8").decode(bytes), { type: "string", cellDates: true })
+        : XLSX.read(bytes, { type: "array", cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: "yyyy-mm-dd" });
+      if (!rows.length) {
+        alert("El archivo no tiene filas.");
+        return;
+      }
+      const headerRowIndex = findHeaderRowIndex(rows);
+      state.headers = rows[headerRowIndex].map((h) => String(h ?? "").trim());
+      state.rawRows = rows.slice(headerRowIndex + 1).filter((r) => r.some((c) => c !== undefined && c !== ""));
+      populateMapping();
+      mappingSection.classList.remove("hidden");
+    } catch (err) {
+      alert("No se pudo leer el archivo. Verifica que sea un CSV o Excel válido exportado del banco.\n\nDetalle: " + err.message);
     }
-    state.headers = rows[0].map((h) => String(h ?? "").trim());
-    state.rawRows = rows.slice(1).filter((r) => r.some((c) => c !== undefined && c !== ""));
-    populateMapping();
-    mappingSection.classList.remove("hidden");
   };
   reader.readAsArrayBuffer(file);
 });
+
+// Muchos bancos agregan filas de título/titular antes de la fila real de encabezados
+// (ej. "Resumen de Tarjeta", "Titular: Juan Pérez"). Buscamos la primera fila que se
+// parezca a un encabezado real en vez de asumir que es la primera del archivo.
+function findHeaderRowIndex(rows) {
+  const headerKeywords = ["fecha", "date", "descrip", "detalle", "concepto", "comercio", "importe", "monto", "amount", "valor", "cuota"];
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const row = rows[i];
+    if (!row || !row.length) continue;
+    const matches = row.filter((cell) => {
+      const text = String(cell ?? "").toLowerCase();
+      return headerKeywords.some((kw) => text.includes(kw));
+    }).length;
+    if (matches >= 2) return i;
+  }
+  return 0;
+}
 
 function guessColumn(candidates) {
   const idx = state.headers.findIndex((h) =>
