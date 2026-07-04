@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auditoría de gastos de tarjeta</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Auditoría de gastos de tarjeta de crédito</h1>
+  <p class="subtitle">Todo el procesamiento ocurre en tu navegador. El archivo que subís nunca sale de tu computadora.</p>
+</header>
+
+<main>
+  <section id="upload-section" class="card">
+    <h2>1. Subí el resumen (CSV o Excel)</h2>
+    <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+    <p class="hint">Exportá el resumen de tu tarjeta como CSV o Excel desde el homebanking de tu banco.</p>
+  </section>
+
+  <section id="mapping-section" class="card hidden">
+    <h2>2. Confirmá qué columna es cada dato</h2>
+    <div class="mapping-grid">
+      <label>Fecha
+        <select id="map-date"></select>
+      </label>
+      <label>Descripción
+        <select id="map-description"></select>
+      </label>
+      <label>Monto
+        <select id="map-amount"></select>
+      </label>
+      <label>Cuotas (opcional)
+        <select id="map-installment">
+          <option value="">-- No tengo esta columna --</option>
+        </select>
+      </label>
+    </div>
+    <label class="anchor-month-label">Mes de este resumen
+      <input type="month" id="anchor-month">
+    </label>
+    <button id="process-btn">Procesar gastos</button>
+  </section>
+
+  <section id="results-section" class="card hidden">
+    <h2>3. Resumen del mes</h2>
+    <div id="totals-bar"></div>
+    <table id="summary-table">
+      <thead><tr><th>Categoría</th><th>Total</th><th>Detalle</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <h2>4. Proyección de cuotas futuras</h2>
+    <table id="projection-table">
+      <thead><tr><th>Mes</th><th>Total comprometido</th><th>Detalle</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="categories-section" class="card">
+    <h2>Gestionar categorías</h2>
+    <div id="categories-editor"></div>
+    <div class="new-category-row">
+      <input type="text" id="new-category-name" placeholder="Nueva categoría">
+      <button id="add-category-btn">Agregar categoría</button>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="categories.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,399 @@
+// ---------- Estado y persistencia ----------
+
+const STORAGE_KEYS = {
+  categories: "gastos.categories.v1",
+  overrides: "gastos.merchantOverrides.v1"
+};
+
+function loadCategories() {
+  const stored = localStorage.getItem(STORAGE_KEYS.categories);
+  if (stored) return JSON.parse(stored);
+  localStorage.setItem(STORAGE_KEYS.categories, JSON.stringify(DEFAULT_CATEGORIES));
+  return JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+}
+
+function saveCategories(categories) {
+  localStorage.setItem(STORAGE_KEYS.categories, JSON.stringify(categories));
+}
+
+function loadOverrides() {
+  const stored = localStorage.getItem(STORAGE_KEYS.overrides);
+  return stored ? JSON.parse(stored) : {};
+}
+
+function saveOverrides(overrides) {
+  localStorage.setItem(STORAGE_KEYS.overrides, JSON.stringify(overrides));
+}
+
+const state = {
+  categories: loadCategories(),
+  overrides: loadOverrides(),
+  headers: [],
+  rawRows: [],
+  transactions: []
+};
+
+// ---------- Parseo de archivo ----------
+
+const fileInput = document.getElementById("file-input");
+const mappingSection = document.getElementById("mapping-section");
+const resultsSection = document.getElementById("results-section");
+
+fileInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const data = new Uint8Array(evt.target.result);
+    const workbook = XLSX.read(data, { type: "array", cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: "yyyy-mm-dd" });
+    if (!rows.length) {
+      alert("El archivo no tiene filas.");
+      return;
+    }
+    state.headers = rows[0].map((h) => String(h ?? "").trim());
+    state.rawRows = rows.slice(1).filter((r) => r.some((c) => c !== undefined && c !== ""));
+    populateMapping();
+    mappingSection.classList.remove("hidden");
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+function guessColumn(candidates) {
+  const idx = state.headers.findIndex((h) =>
+    candidates.some((c) => h.toLowerCase().includes(c))
+  );
+  return idx;
+}
+
+function populateMapping() {
+  const selects = {
+    "map-date": guessColumn(["fecha", "date"]),
+    "map-description": guessColumn(["descrip", "detalle", "concepto", "comercio"]),
+    "map-amount": guessColumn(["importe", "monto", "amount", "valor"]),
+    "map-installment": guessColumn(["cuota", "installment"])
+  };
+  Object.entries(selects).forEach(([selectId, guessIdx]) => {
+    const select = document.getElementById(selectId);
+    select.innerHTML = "";
+    if (selectId === "map-installment") {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "-- No tengo esta columna --";
+      select.appendChild(opt);
+    }
+    state.headers.forEach((h, i) => {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = h || `Columna ${i + 1}`;
+      select.appendChild(opt);
+    });
+    if (guessIdx >= 0) select.value = guessIdx;
+  });
+
+  // Default del mes del resumen: el mes de la fecha más reciente encontrada
+  const dateIdx = selects["map-date"];
+  if (dateIdx >= 0) {
+    const dates = state.rawRows.map((r) => parseDate(r[dateIdx])).filter(Boolean);
+    if (dates.length) {
+      const maxDate = new Date(Math.max(...dates.map((d) => d.getTime())));
+      document.getElementById("anchor-month").value =
+        `${maxDate.getFullYear()}-${String(maxDate.getMonth() + 1).padStart(2, "0")}`;
+    }
+  }
+}
+
+// ---------- Parseo de fecha y monto ----------
+
+function parseDate(value) {
+  if (!value) return null;
+  const str = String(value).trim();
+  let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) {
+    let year = +m[3];
+    if (year < 100) year += 2000;
+    return new Date(year, +m[2] - 1, +m[1]);
+  }
+  return null;
+}
+
+function parseAmount(value) {
+  if (value === undefined || value === null || value === "") return 0;
+  let str = String(value).trim();
+  let negative = false;
+  if (/^\(.*\)$/.test(str)) {
+    negative = true;
+    str = str.slice(1, -1);
+  }
+  str = str.replace(/[^0-9,.\-]/g, "");
+  if (str.startsWith("-")) {
+    negative = true;
+    str = str.slice(1);
+  }
+  if (str.includes(",") && str.includes(".")) {
+    // Formato AR: "." separador de miles, "," decimal
+    str = str.replace(/\./g, "").replace(",", ".");
+  } else if (str.includes(",")) {
+    str = str.replace(",", ".");
+  }
+  const num = parseFloat(str) || 0;
+  return negative ? -num : num;
+}
+
+// ---------- Detección de cuotas ----------
+
+function detectInstallment(description, installmentColumnValue) {
+  if (installmentColumnValue) {
+    const m = String(installmentColumnValue).match(/(\d{1,2})\s*[\/\-]\s*(\d{1,2})/);
+    if (m) return { current: +m[1], total: +m[2] };
+  }
+  const text = String(description || "").toUpperCase();
+  let m = text.match(/CUOTAS?\.?\s*N?°?\s*(\d{1,2})\s*[\/\-DE]{1,3}\s*(\d{1,2})/);
+  if (!m) m = text.match(/\bC\.?\s*(\d{1,2})\s*\/\s*(\d{1,2})\b/);
+  if (!m) m = text.match(/\((\d{1,2})\s*\/\s*(\d{1,2})\)/);
+  if (m) {
+    const current = parseInt(m[1], 10);
+    const total = parseInt(m[2], 10);
+    if (total >= current && total <= 60 && current >= 1) return { current, total };
+  }
+  return null;
+}
+
+// ---------- Categorización ----------
+
+function normalizeDescription(description) {
+  return String(description || "").trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+function categorize(description) {
+  const normalized = normalizeDescription(description);
+  if (state.overrides[normalized]) return state.overrides[normalized];
+  for (const [category, keywords] of Object.entries(state.categories)) {
+    if (keywords.some((kw) => kw && normalized.includes(kw.toUpperCase()))) {
+      return category;
+    }
+  }
+  return "Sin categorizar";
+}
+
+// ---------- Procesamiento ----------
+
+document.getElementById("process-btn").addEventListener("click", () => {
+  const dateIdx = +document.getElementById("map-date").value;
+  const descIdx = +document.getElementById("map-description").value;
+  const amountIdx = +document.getElementById("map-amount").value;
+  const installIdx = document.getElementById("map-installment").value;
+
+  state.transactions = state.rawRows.map((row) => {
+    const description = row[descIdx];
+    const amount = parseAmount(row[amountIdx]);
+    const installment = detectInstallment(description, installIdx !== "" ? row[+installIdx] : null);
+    return {
+      date: parseDate(row[dateIdx]),
+      description: String(description || "").trim(),
+      amount,
+      installment,
+      category: amount < 0 ? "Pago/Reintegro" : categorize(description)
+    };
+  });
+
+  resultsSection.classList.remove("hidden");
+  renderSummary();
+  renderProjection();
+});
+
+// ---------- Resumen del mes ----------
+
+function renderSummary() {
+  const tbody = document.querySelector("#summary-table tbody");
+  tbody.innerHTML = "";
+
+  const gastos = state.transactions.filter((t) => t.category !== "Pago/Reintegro");
+  const pagos = state.transactions.filter((t) => t.category === "Pago/Reintegro");
+
+  const byCategory = {};
+  gastos.forEach((t) => {
+    (byCategory[t.category] = byCategory[t.category] || []).push(t);
+  });
+
+  const totalGastos = gastos.reduce((sum, t) => sum + t.amount, 0);
+  const totalPagos = pagos.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+  document.getElementById("totals-bar").textContent =
+    `Total gastado: $${totalGastos.toFixed(2)}` +
+    (pagos.length ? ` · Pagos/reintegros (no incluidos): $${totalPagos.toFixed(2)}` : "");
+
+  Object.entries(byCategory)
+    .sort((a, b) => sumAmounts(b[1]) - sumAmounts(a[1]))
+    .forEach(([category, txs]) => {
+      const total = sumAmounts(txs);
+      const row = document.createElement("tr");
+      row.className = "category-row";
+      row.innerHTML = `<td>${category}</td><td>$${total.toFixed(2)}</td><td>${txs.length} gasto(s) — click para ver</td>`;
+      const detailRow = document.createElement("tr");
+      detailRow.className = "detail-row hidden";
+      const detailCell = document.createElement("td");
+      detailCell.colSpan = 3;
+      const inner = document.createElement("div");
+      inner.className = "detail-inner";
+      txs.forEach((t) => {
+        const line = document.createElement("div");
+        const label = document.createElement("span");
+        label.textContent = `${formatDate(t.date)} — ${t.description}${t.installment ? ` (cuota ${t.installment.current}/${t.installment.total})` : ""}`;
+        const amountSpan = document.createElement("span");
+        amountSpan.textContent = `$${t.amount.toFixed(2)}`;
+        line.appendChild(label);
+        line.appendChild(amountSpan);
+        if (category === "Sin categorizar") {
+          const select = document.createElement("select");
+          const placeholder = document.createElement("option");
+          placeholder.textContent = "Asignar categoría...";
+          placeholder.value = "";
+          select.appendChild(placeholder);
+          Object.keys(state.categories).forEach((c) => {
+            const opt = document.createElement("option");
+            opt.value = c;
+            opt.textContent = c;
+            select.appendChild(opt);
+          });
+          select.addEventListener("change", () => {
+            if (!select.value) return;
+            state.overrides[normalizeDescription(t.description)] = select.value;
+            saveOverrides(state.overrides);
+            t.category = select.value;
+            renderSummary();
+          });
+          line.appendChild(select);
+        }
+        inner.appendChild(line);
+      });
+      detailCell.appendChild(inner);
+      detailRow.appendChild(detailCell);
+      row.addEventListener("click", () => detailRow.classList.toggle("hidden"));
+      tbody.appendChild(row);
+      tbody.appendChild(detailRow);
+    });
+}
+
+function sumAmounts(txs) {
+  return txs.reduce((sum, t) => sum + t.amount, 0);
+}
+
+function formatDate(date) {
+  if (!date) return "?";
+  return date.toLocaleDateString("es-AR");
+}
+
+// ---------- Proyección de cuotas ----------
+
+const MONTH_NAMES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+];
+
+function renderProjection() {
+  const tbody = document.querySelector("#projection-table tbody");
+  tbody.innerHTML = "";
+
+  const anchorValue = document.getElementById("anchor-month").value;
+  if (!anchorValue) return;
+  const [anchorYear, anchorMonth] = anchorValue.split("-").map(Number);
+
+  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago/Reintegro");
+
+  const projection = {}; // "YYYY-MM" -> [{description, amount}]
+
+  withInstallments.forEach((t) => {
+    const remaining = t.installment.total - t.installment.current;
+    for (let i = 1; i <= remaining; i++) {
+      const monthIndex = (anchorMonth - 1) + i;
+      const year = anchorYear + Math.floor(monthIndex / 12);
+      const month = (monthIndex % 12) + 1;
+      const key = `${year}-${String(month).padStart(2, "0")}`;
+      (projection[key] = projection[key] || []).push({
+        description: t.description,
+        amount: t.amount,
+        installmentLabel: `${t.installment.current + i}/${t.installment.total}`
+      });
+    }
+  });
+
+  const sortedKeys = Object.keys(projection).sort();
+  if (!sortedKeys.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="3">No se detectaron gastos en cuotas en este resumen.</td>`;
+    tbody.appendChild(row);
+    return;
+  }
+
+  sortedKeys.forEach((key) => {
+    const [year, month] = key.split("-").map(Number);
+    const items = projection[key];
+    const total = items.reduce((sum, i) => sum + i.amount, 0);
+    const row = document.createElement("tr");
+    row.className = "category-row";
+    row.innerHTML = `<td>${MONTH_NAMES[month - 1]} ${year}</td><td>$${total.toFixed(2)}</td><td>${items.length} cuota(s) — click para ver</td>`;
+    const detailRow = document.createElement("tr");
+    detailRow.className = "detail-row hidden";
+    const detailCell = document.createElement("td");
+    detailCell.colSpan = 3;
+    const inner = document.createElement("div");
+    inner.className = "detail-inner";
+    items.forEach((i) => {
+      const line = document.createElement("div");
+      line.innerHTML = `<span>${i.description} (cuota ${i.installmentLabel})</span><span>$${i.amount.toFixed(2)}</span>`;
+      inner.appendChild(line);
+    });
+    detailCell.appendChild(inner);
+    detailRow.appendChild(detailCell);
+    row.addEventListener("click", () => detailRow.classList.toggle("hidden"));
+    tbody.appendChild(row);
+    tbody.appendChild(detailRow);
+  });
+}
+
+document.getElementById("anchor-month").addEventListener("change", () => {
+  if (state.transactions.length) renderProjection();
+});
+
+// ---------- Gestión de categorías ----------
+
+function renderCategoryEditor() {
+  const container = document.getElementById("categories-editor");
+  container.innerHTML = "";
+  Object.entries(state.categories).forEach(([category, keywords]) => {
+    const row = document.createElement("div");
+    row.className = "category-editor-row";
+    row.innerHTML = `
+      <strong>${category}</strong>
+      <textarea>${keywords.join(", ")}</textarea>
+      <button class="delete-category">Borrar</button>
+    `;
+    const textarea = row.querySelector("textarea");
+    textarea.addEventListener("change", () => {
+      state.categories[category] = textarea.value.split(",").map((k) => k.trim()).filter(Boolean);
+      saveCategories(state.categories);
+    });
+    row.querySelector(".delete-category").addEventListener("click", () => {
+      delete state.categories[category];
+      saveCategories(state.categories);
+      renderCategoryEditor();
+    });
+    container.appendChild(row);
+  });
+}
+
+document.getElementById("add-category-btn").addEventListener("click", () => {
+  const input = document.getElementById("new-category-name");
+  const name = input.value.trim();
+  if (!name || state.categories[name]) return;
+  state.categories[name] = [];
+  saveCategories(state.categories);
+  input.value = "";
+  renderCategoryEditor();
+});
+
+renderCategoryEditor();
