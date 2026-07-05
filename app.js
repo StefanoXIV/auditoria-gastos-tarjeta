@@ -60,7 +60,10 @@ fileInput.addEventListener("change", (e) => {
         return;
       }
       const headerRowIndex = findHeaderRowIndex(rows);
-      state.headers = rows[headerRowIndex].map((h) => String(h ?? "").trim());
+      const headerRow = rows[headerRowIndex] || [];
+      // Array.from (no .map) para evitar "huecos" en el array cuando alguna celda
+      // del encabezado viene completamente vacía en el archivo original.
+      state.headers = Array.from({ length: headerRow.length }, (_, i) => String(headerRow[i] ?? "").trim());
       state.rawRows = rows.slice(headerRowIndex + 1).filter((r) => r.some((c) => c !== undefined && c !== ""));
       populateMapping();
       mappingSection.classList.remove("hidden");
@@ -90,7 +93,7 @@ function findHeaderRowIndex(rows) {
 
 function guessColumn(candidates) {
   const idx = state.headers.findIndex((h) =>
-    candidates.some((c) => h.toLowerCase().includes(c))
+    candidates.some((c) => String(h ?? "").toLowerCase().includes(c))
   );
   return idx;
 }
