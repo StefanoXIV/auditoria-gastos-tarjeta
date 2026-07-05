@@ -9,6 +9,6 @@ const DEFAULT_CATEGORIES = {
   "Compras / Retail": ["mercadolibre", "falabella", "garbarino", "fravega", "musimundo", "amazon", "shein", "zara", "tienda", "ikea", "ML *"],
   "Educación": ["udemy", "coursera", "platzi", "universidad", "instituto"],
   "Entretenimiento": ["cine", "cinemark", "hoyts", "cinepolis", "teatro", "steam", "playstation"],
-  "Pago de Tarjeta": ["pago tarjeta", "pago su factura", "pago recibido", "pago minimo", "pago total", "abono tarjeta"],
+  "Pago de Tarjeta": ["pago tarjeta", "pago su factura", "pago recibido", "pago minimo", "pago total", "abono tarjeta", "monto cancelado"],
   "Otros": []
 };
