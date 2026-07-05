@@ -104,7 +104,11 @@ fileInput.addEventListener("change", (e) => {
         ? XLSX.read(new TextDecoder("utf-8").decode(bytes), { type: "string", cellDates: true })
         : XLSX.read(bytes, { type: "array", cellDates: true });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: "yyyy-mm-dd" });
+      // defval: null evita que cada fila se recorte al último valor no vacío. Sin esto,
+      // si el encabezado tiene menos celdas pobladas que las filas de datos (pasa cuando
+      // el archivo del banco tiene una columna intermedia sin texto de encabezado, por
+      // ejemplo), los índices de columna quedan desalineados entre el encabezado y los datos.
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: "yyyy-mm-dd", defval: null });
       if (!rows.length) {
         alert("El archivo no tiene filas.");
         return;
@@ -114,7 +118,7 @@ fileInput.addEventListener("change", (e) => {
       // Array.from (no .map) para evitar "huecos" en el array cuando alguna celda
       // del encabezado viene completamente vacía en el archivo original.
       state.headers = Array.from({ length: headerRow.length }, (_, i) => String(headerRow[i] ?? "").trim());
-      state.rawRows = rows.slice(headerRowIndex + 1).filter((r) => r.some((c) => c !== undefined && c !== ""));
+      state.rawRows = rows.slice(headerRowIndex + 1).filter((r) => r.some((c) => c !== undefined && c !== null && c !== ""));
       populateMapping();
       mappingSection.classList.remove("hidden");
     } catch (err) {
@@ -150,11 +154,39 @@ function guessColumn(candidates) {
   return idx;
 }
 
+function looksLikeMoney(value) {
+  if (value === null || value === undefined || value === "") return false;
+  const str = String(value).trim();
+  // Separador de miles (con o sin decimales) o al menos 3 dígitos seguidos
+  if (/^-?\(?\$?\s*\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?\)?$/.test(str)) return true;
+  return /^-?\d{3,}$/.test(str.replace(/[^\d-]/g, ""));
+}
+
+// Algunos bancos dejan una columna intermedia sin texto de encabezado (o el encabezado
+// del monto queda desalineado de donde realmente están los valores). Si la columna
+// adivinada por el nombre del header no parece tener montos, se busca en las columnas
+// siguientes la que sí tenga pinta de plata.
+function refineAmountColumn(guessIdx) {
+  if (guessIdx < 0 || !state.rawRows.length) return guessIdx;
+  const sample = state.rawRows.slice(0, 20);
+  const scoreColumn = (idx) => sample.filter((r) => looksLikeMoney(r[idx])).length;
+  let bestIdx = guessIdx;
+  let bestScore = scoreColumn(guessIdx);
+  for (let idx = guessIdx + 1; idx <= Math.min(guessIdx + 3, state.headers.length - 1); idx++) {
+    const score = scoreColumn(idx);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = idx;
+    }
+  }
+  return bestIdx;
+}
+
 function populateMapping() {
   const selects = {
     "map-date": guessColumn(["fecha", "date"]),
     "map-description": guessColumn(["descrip", "detalle", "concepto", "comercio"]),
-    "map-amount": guessColumn(["importe", "monto", "amount", "valor"]),
+    "map-amount": refineAmountColumn(guessColumn(["importe", "monto", "amount", "valor"])),
     "map-installment": guessColumn(["cuota", "installment"])
   };
   Object.entries(selects).forEach(([selectId, guessIdx]) => {
