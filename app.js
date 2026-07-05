@@ -74,19 +74,21 @@ fileInput.addEventListener("change", (e) => {
   reader.readAsArrayBuffer(file);
 });
 
-// Muchos bancos agregan filas de título/titular antes de la fila real de encabezados
-// (ej. "Resumen de Tarjeta", "Titular: Juan Pérez"). Buscamos la primera fila que se
-// parezca a un encabezado real en vez de asumir que es la primera del archivo.
+// Muchos bancos agregan filas de título/titular y hasta mini-tablas de resumen
+// (ej. "Monto Facturado / Pago Mínimo / Fecha de Facturación") antes de la fila
+// real de encabezados de la tabla de movimientos. Exigimos que la fila tenga a
+// la vez una columna de fecha Y una de descripción — la combinación que solo
+// tiene la tabla de movimientos real, no esas mini-tablas de resumen.
 function findHeaderRowIndex(rows) {
-  const headerKeywords = ["fecha", "date", "descrip", "detalle", "concepto", "comercio", "importe", "monto", "amount", "valor", "cuota"];
-  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+  const dateKeywords = ["fecha", "date"];
+  const descKeywords = ["descrip", "detalle", "concepto", "comercio"];
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i];
     if (!row || !row.length) continue;
-    const matches = row.filter((cell) => {
-      const text = String(cell ?? "").toLowerCase();
-      return headerKeywords.some((kw) => text.includes(kw));
-    }).length;
-    if (matches >= 2) return i;
+    const texts = row.map((cell) => String(cell ?? "").toLowerCase());
+    const hasDate = texts.some((t) => dateKeywords.some((kw) => t.includes(kw)));
+    const hasDesc = texts.some((t) => descKeywords.some((kw) => t.includes(kw)));
+    if (hasDate && hasDesc) return i;
   }
   return 0;
 }
