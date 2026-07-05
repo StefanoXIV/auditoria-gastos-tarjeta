@@ -6,8 +6,9 @@ const DEFAULT_CATEGORIES = {
   "Transporte": ["sube", "uber", "cabify", "ypf", "shell", "axion", "puma energy", "peaje", "estacionamiento", "subte", "didi"],
   "Servicios / Suscripciones": ["netflix", "spotify", "disney", "hbo", "youtube premium", "icloud", "google one", "claro", "movistar", "personal", "directv", "cablevision", "fibertel", "flow"],
   "Salud": ["farmacia", "farmacity", "osde", "swiss medical", "medife", "laboratorio", "medicina"],
-  "Compras / Retail": ["mercadolibre", "falabella", "garbarino", "fravega", "musimundo", "amazon", "shein", "zara", "tienda", "ML *"],
+  "Compras / Retail": ["mercadolibre", "falabella", "garbarino", "fravega", "musimundo", "amazon", "shein", "zara", "tienda", "ikea", "ML *"],
   "Educación": ["udemy", "coursera", "platzi", "universidad", "instituto"],
-  "Entretenimiento": ["cine", "cinemark", "hoyts", "teatro", "steam", "playstation"],
+  "Entretenimiento": ["cine", "cinemark", "hoyts", "cinepolis", "teatro", "steam", "playstation"],
+  "Pago de Tarjeta": ["pago tarjeta", "pago su factura", "pago recibido", "pago minimo", "pago total", "abono tarjeta"],
   "Otros": []
 };

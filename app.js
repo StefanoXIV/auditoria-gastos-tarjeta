@@ -161,14 +161,32 @@ function parseAmount(value) {
     negative = true;
     str = str.slice(1);
   }
-  if (str.includes(",") && str.includes(".")) {
-    // Formato AR: "." separador de miles, "," decimal
-    str = str.replace(/\./g, "").replace(",", ".");
-  } else if (str.includes(",")) {
-    str = str.replace(",", ".");
+
+  // El separador de miles/decimales varía según el banco (Chile suele usar "," como
+  // separador de miles en sus exportes, sin decimales). Se decide por el separador
+  // que aparece último: si le siguen 2 dígitos es decimal, si le siguen 3 son miles.
+  const lastComma = str.lastIndexOf(",");
+  const lastDot = str.lastIndexOf(".");
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) {
+      str = str.replace(/\./g, "").replace(",", ".");
+    } else {
+      str = str.replace(/,/g, "");
+    }
+  } else if (lastComma > -1) {
+    const decimals = str.length - lastComma - 1;
+    str = decimals === 2 ? str.replace(",", ".") : str.replace(/,/g, "");
+  } else if (lastDot > -1) {
+    const decimals = str.length - lastDot - 1;
+    if (decimals === 3) str = str.replace(/\./g, "");
   }
+
   const num = parseFloat(str) || 0;
   return negative ? -num : num;
+}
+
+function formatMoney(amount) {
+  return "$" + Math.round(amount).toLocaleString("es-CL");
 }
 
 // ---------- Detección de cuotas ----------
@@ -185,7 +203,8 @@ function detectInstallment(description, installmentColumnValue) {
   if (m) {
     const current = parseInt(m[1], 10);
     const total = parseInt(m[2], 10);
-    if (total >= current && total <= 60 && current >= 1) return { current, total };
+    // "01/01" significa pago único (una sola cuota), no es un plan de cuotas real
+    if (total > 1 && total >= current && total <= 60 && current >= 1) return { current, total };
   }
   return null;
 }
@@ -207,6 +226,25 @@ function categorize(description) {
   return "Sin categorizar";
 }
 
+// Detecta pares de montos iguales con signo opuesto (ej. una compra y su anulación/reversa)
+// para que el usuario los revise: pueden ser duplicados o cargos que se anulan entre sí.
+function detectSuspicious(transactions) {
+  const byAbsAmount = {};
+  transactions.forEach((t) => {
+    const key = Math.abs(t.amount);
+    if (!key) return;
+    (byAbsAmount[key] = byAbsAmount[key] || []).push(t);
+  });
+  const flagged = [];
+  Object.values(byAbsAmount).forEach((group) => {
+    if (group.length < 2) return;
+    const hasPositive = group.some((t) => t.amount > 0);
+    const hasNegative = group.some((t) => t.amount < 0);
+    if (hasPositive && hasNegative) flagged.push(...group);
+  });
+  return flagged.sort((a, b) => (a.date && b.date ? a.date - b.date : 0));
+}
+
 // ---------- Procesamiento ----------
 
 document.getElementById("process-btn").addEventListener("click", () => {
@@ -224,14 +262,32 @@ document.getElementById("process-btn").addEventListener("click", () => {
       description: String(description || "").trim(),
       amount,
       installment,
-      category: amount < 0 ? "Pago/Reintegro" : categorize(description)
+      category: categorize(description)
     };
   });
 
   resultsSection.classList.remove("hidden");
+  renderSuspicious();
   renderSummary();
   renderProjection();
 });
+
+// ---------- Cargos a revisar ----------
+
+function renderSuspicious() {
+  const container = document.getElementById("suspicious-warning");
+  const flagged = detectSuspicious(state.transactions);
+  if (!flagged.length) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+  container.classList.remove("hidden");
+  const lines = flagged
+    .map((t) => `<div>${formatDate(t.date)} — ${t.description} — ${formatMoney(t.amount)}</div>`)
+    .join("");
+  container.innerHTML = `<strong>Revisa estos cargos:</strong> tienen el mismo monto con signo opuesto a otro cargo del resumen — podrían ser compras ya anuladas/reversadas, o cargos duplicados.${lines}`;
+}
 
 // ---------- Resumen del mes ----------
 
@@ -239,8 +295,8 @@ function renderSummary() {
   const tbody = document.querySelector("#summary-table tbody");
   tbody.innerHTML = "";
 
-  const gastos = state.transactions.filter((t) => t.category !== "Pago/Reintegro");
-  const pagos = state.transactions.filter((t) => t.category === "Pago/Reintegro");
+  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta");
+  const pagos = state.transactions.filter((t) => t.category === "Pago de Tarjeta");
 
   const byCategory = {};
   gastos.forEach((t) => {
@@ -251,8 +307,8 @@ function renderSummary() {
   const totalPagos = pagos.reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   document.getElementById("totals-bar").textContent =
-    `Total gastado: $${totalGastos.toFixed(2)}` +
-    (pagos.length ? ` · Pagos/reintegros (no incluidos): $${totalPagos.toFixed(2)}` : "");
+    `Total gastado: ${formatMoney(totalGastos)}` +
+    (pagos.length ? ` · Pagos de tarjeta (no incluidos): ${formatMoney(totalPagos)}` : "");
 
   Object.entries(byCategory)
     .sort((a, b) => sumAmounts(b[1]) - sumAmounts(a[1]))
@@ -260,7 +316,7 @@ function renderSummary() {
       const total = sumAmounts(txs);
       const row = document.createElement("tr");
       row.className = "category-row";
-      row.innerHTML = `<td>${category}</td><td>$${total.toFixed(2)}</td><td>${txs.length} gasto(s) — click para ver</td>`;
+      row.innerHTML = `<td>${category}</td><td>${formatMoney(total)}</td><td>${txs.length} gasto(s) — click para ver</td>`;
       const detailRow = document.createElement("tr");
       detailRow.className = "detail-row hidden";
       const detailCell = document.createElement("td");
@@ -272,7 +328,7 @@ function renderSummary() {
         const label = document.createElement("span");
         label.textContent = `${formatDate(t.date)} — ${t.description}${t.installment ? ` (cuota ${t.installment.current}/${t.installment.total})` : ""}`;
         const amountSpan = document.createElement("span");
-        amountSpan.textContent = `$${t.amount.toFixed(2)}`;
+        amountSpan.textContent = formatMoney(t.amount);
         line.appendChild(label);
         line.appendChild(amountSpan);
         if (category === "Sin categorizar") {
@@ -312,7 +368,7 @@ function sumAmounts(txs) {
 
 function formatDate(date) {
   if (!date) return "?";
-  return date.toLocaleDateString("es-AR");
+  return date.toLocaleDateString("es-CL");
 }
 
 // ---------- Proyección de cuotas ----------
@@ -330,7 +386,7 @@ function renderProjection() {
   if (!anchorValue) return;
   const [anchorYear, anchorMonth] = anchorValue.split("-").map(Number);
 
-  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago/Reintegro");
+  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago de Tarjeta");
 
   const projection = {}; // "YYYY-MM" -> [{description, amount}]
 
@@ -363,7 +419,7 @@ function renderProjection() {
     const total = items.reduce((sum, i) => sum + i.amount, 0);
     const row = document.createElement("tr");
     row.className = "category-row";
-    row.innerHTML = `<td>${MONTH_NAMES[month - 1]} ${year}</td><td>$${total.toFixed(2)}</td><td>${items.length} cuota(s) — click para ver</td>`;
+    row.innerHTML = `<td>${MONTH_NAMES[month - 1]} ${year}</td><td>${formatMoney(total)}</td><td>${items.length} cuota(s) — click para ver</td>`;
     const detailRow = document.createElement("tr");
     detailRow.className = "detail-row hidden";
     const detailCell = document.createElement("td");
@@ -372,7 +428,7 @@ function renderProjection() {
     inner.className = "detail-inner";
     items.forEach((i) => {
       const line = document.createElement("div");
-      line.innerHTML = `<span>${i.description} (cuota ${i.installmentLabel})</span><span>$${i.amount.toFixed(2)}</span>`;
+      line.innerHTML = `<span>${i.description} (cuota ${i.installmentLabel})</span><span>${formatMoney(i.amount)}</span>`;
       inner.appendChild(line);
     });
     detailCell.appendChild(inner);

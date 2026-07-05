@@ -136,6 +136,18 @@ tr.category-row:hover { background: rgba(127,127,127,0.06); }
 
 .uncategorized select { font-size: 0.8rem; padding: 4px; }
 
+.warning-box {
+  background: rgba(239, 107, 107, 0.1);
+  border: 1px solid var(--danger);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 0.85rem;
+}
+
+.warning-box div { padding: 2px 0; color: var(--muted); }
+
 .category-editor-row {
   display: flex;
   gap: 8px;
