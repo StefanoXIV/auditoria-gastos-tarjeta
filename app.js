@@ -199,6 +199,9 @@ function formatMoney(amount) {
 function detectInstallment(description, installmentColumnValue) {
   if (installmentColumnValue) {
     const m = String(installmentColumnValue).match(/(\d{1,2})\s*[\/\-]\s*(\d{1,2})/);
+    // Algunos bancos incluyen una sección aparte de "información de compras en cuotas"
+    // con cuota "00/N" — no es una compra nueva que deba sumarse al total del mes,
+    // por eso se acepta current === 0 pero se marca como informational más abajo.
     if (m) return { current: +m[1], total: +m[2] };
   }
   const text = String(description || "").toUpperCase();
@@ -209,7 +212,7 @@ function detectInstallment(description, installmentColumnValue) {
     const current = parseInt(m[1], 10);
     const total = parseInt(m[2], 10);
     // "01/01" significa pago único (una sola cuota), no es un plan de cuotas real
-    if (total > 1 && total >= current && total <= 60 && current >= 1) return { current, total };
+    if (total > 1 && total >= current && total <= 60 && current >= 0) return { current, total };
   }
   return null;
 }
@@ -267,12 +270,17 @@ document.getElementById("process-btn").addEventListener("click", () => {
       description: String(description || "").trim(),
       amount,
       installment,
+      // Cuota "00/N": algunos bancos la usan para una sección aparte de "información de
+      // compras en cuotas" que no corresponde a un cargo nuevo de este período — se excluye
+      // del total y de la proyección hasta que el usuario confirme de qué se trata.
+      isInformational: !!(installment && installment.current === 0),
       category: categorize(description)
     };
   });
 
   resultsSection.classList.remove("hidden");
   renderSuspicious();
+  renderInformational();
   renderSummary();
   renderProjection();
 });
@@ -281,7 +289,7 @@ document.getElementById("process-btn").addEventListener("click", () => {
 
 function renderSuspicious() {
   const container = document.getElementById("suspicious-warning");
-  const flagged = detectSuspicious(state.transactions);
+  const flagged = detectSuspicious(state.transactions.filter((t) => !t.isInformational));
   if (!flagged.length) {
     container.classList.add("hidden");
     container.innerHTML = "";
@@ -294,13 +302,29 @@ function renderSuspicious() {
   container.innerHTML = `<strong>Revisa estos cargos:</strong> tienen el mismo monto con signo opuesto a otro cargo del resumen — podrían ser compras ya anuladas/reversadas, o cargos duplicados.${lines}`;
 }
 
+function renderInformational() {
+  const container = document.getElementById("informational-note");
+  const items = state.transactions.filter((t) => t.isInformational);
+  if (!items.length) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+  container.classList.remove("hidden");
+  const total = items.reduce((sum, t) => sum + t.amount, 0);
+  const lines = items
+    .map((t) => `<div>${formatDate(t.date)} — ${t.description} (cuota ${t.installment.current}/${t.installment.total}) — ${formatMoney(t.amount)}</div>`)
+    .join("");
+  container.innerHTML = `<strong>Sin incluir en el total (cuota "0 de N"):</strong> el resumen trae ${items.length} cargo(s) por ${formatMoney(total)} marcados con cuota 0, que parecen ser información aparte y no un cargo nuevo del período. Verifícalo con tu banco antes de asumir que están bien excluidos.${lines}`;
+}
+
 // ---------- Resumen del mes ----------
 
 function renderSummary() {
   const tbody = document.querySelector("#summary-table tbody");
   tbody.innerHTML = "";
 
-  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta");
+  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta" && !t.isInformational);
   const pagos = state.transactions.filter((t) => t.category === "Pago de Tarjeta");
 
   const byCategory = {};
@@ -391,7 +415,7 @@ function renderProjection() {
   if (!anchorValue) return;
   const [anchorYear, anchorMonth] = anchorValue.split("-").map(Number);
 
-  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago de Tarjeta");
+  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago de Tarjeta" && !t.isInformational);
 
   const projection = {}; // "YYYY-MM" -> [{description, amount}]
 
