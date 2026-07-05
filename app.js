@@ -352,18 +352,16 @@ document.getElementById("process-btn").addEventListener("click", () => {
     // de la compra, no lo que se cobra este mes; hay que dividirlo entre las cuotas.
     // En los "Facturados" el monto que aparece ya es el valor mensual de la cuota.
     const monthlyAmount =
-      statementType === "no-facturado" && installment && installment.current >= 1
-        ? amount / installment.total
-        : amount;
+      statementType === "no-facturado" && installment ? amount / installment.total : amount;
     return {
       date: parseDate(row[dateIdx]),
       description: String(description || "").trim(),
       amount,
       monthlyAmount,
       installment,
-      // Cuota "00/N": algunos bancos la usan para una sección aparte de "información de
-      // compras en cuotas" que no corresponde a un cargo nuevo de este período — se excluye
-      // del total y de la proyección hasta que el usuario confirme de qué se trata.
+      // Cuota "0/N": la compra ya se hizo pero todavía no se cobró ninguna cuota — la
+      // primera se cobra recién el mes siguiente. Se excluye del gasto de este período
+      // (no es un cargo de este mes), pero sí entra en la proyección de cuotas futuras.
       isInformational: !!(installment && installment.current === 0),
       category: categorize(description)
     };
@@ -433,7 +431,7 @@ function renderInformational() {
   const lines = items
     .map((t) => `<div>${formatDate(t.date)} — ${t.description} (cuota ${t.installment.current}/${t.installment.total}) — ${formatMoney(t.amount)}</div>`)
     .join("");
-  container.innerHTML = `<strong>Sin incluir en el total (cuota "0 de N"):</strong> el resumen trae ${items.length} cargo(s) por ${formatMoney(total)} marcados con cuota 0, que parecen ser información aparte y no un cargo nuevo del período. Verifícalo con tu banco antes de asumir que están bien excluidos.${lines}`;
+  container.innerHTML = `<strong>Compras en cuotas recién hechas (cuota "0 de N"):</strong> ${items.length} cargo(s) por ${formatMoney(total)} — la compra ya se hizo pero todavía no se cobró ninguna cuota, así que no se incluyen en el gasto de este período. Sí están consideradas en la proyección de cuotas futuras, empezando el mes que viene.${lines}`;
 }
 
 // ---------- Resumen ejecutivo ----------
@@ -621,7 +619,8 @@ function renderProjection() {
   if (!anchorValue) return;
   const [anchorYear, anchorMonth] = anchorValue.split("-").map(Number);
 
-  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago de Tarjeta" && !t.isInformational && !t.isOutlier);
+  // Las cuotas "0/N" sí se incluyen acá: la primera cuota se cobra el mes que viene.
+  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago de Tarjeta" && !t.isOutlier);
 
   const projection = {}; // "YYYY-MM" -> [{description, amount}]
 
