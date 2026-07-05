@@ -14,13 +14,13 @@
 
 <main>
   <section id="upload-section" class="card">
-    <h2>1. Subí el resumen (CSV o Excel)</h2>
+    <h2>1. Sube el resumen (CSV o Excel)</h2>
     <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
-    <p class="hint">Exportá el resumen de tu tarjeta como CSV o Excel desde el homebanking de tu banco.</p>
+    <p class="hint">Exporta el resumen de tu tarjeta como CSV o Excel desde el homebanking de tu banco.</p>
   </section>
 
   <section id="mapping-section" class="card hidden">
-    <h2>2. Confirmá qué columna es cada dato</h2>
+    <h2>2. Confirma qué columna es cada dato</h2>
     <div class="mapping-grid">
       <label>Fecha
         <select id="map-date"></select>
@@ -37,6 +37,12 @@
         </select>
       </label>
     </div>
+    <label class="anchor-month-label">Tipo de resumen
+      <select id="statement-type">
+        <option value="facturado">Facturados (el monto de cuotas ya es el valor mensual)</option>
+        <option value="no-facturado">No facturados (el monto de cuotas es el total de la compra)</option>
+      </select>
+    </label>
     <label class="anchor-month-label">Mes de este resumen
       <input type="month" id="anchor-month">
     </label>

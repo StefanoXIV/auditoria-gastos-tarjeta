@@ -260,15 +260,24 @@ document.getElementById("process-btn").addEventListener("click", () => {
   const descIdx = +document.getElementById("map-description").value;
   const amountIdx = +document.getElementById("map-amount").value;
   const installIdx = document.getElementById("map-installment").value;
+  const statementType = document.getElementById("statement-type").value;
 
   state.transactions = state.rawRows.map((row) => {
     const description = row[descIdx];
     const amount = parseAmount(row[amountIdx]);
     const installment = detectInstallment(description, installIdx !== "" ? row[+installIdx] : null);
+    // En los resúmenes de "No facturados" el monto de una compra en cuotas es el total
+    // de la compra, no lo que se cobra este mes; hay que dividirlo entre las cuotas.
+    // En los "Facturados" el monto que aparece ya es el valor mensual de la cuota.
+    const monthlyAmount =
+      statementType === "no-facturado" && installment && installment.current >= 1
+        ? amount / installment.total
+        : amount;
     return {
       date: parseDate(row[dateIdx]),
       description: String(description || "").trim(),
       amount,
+      monthlyAmount,
       installment,
       // Cuota "00/N": algunos bancos la usan para una sección aparte de "información de
       // compras en cuotas" que no corresponde a un cargo nuevo de este período — se excluye
@@ -332,7 +341,7 @@ function renderSummary() {
     (byCategory[t.category] = byCategory[t.category] || []).push(t);
   });
 
-  const totalGastos = gastos.reduce((sum, t) => sum + t.amount, 0);
+  const totalGastos = gastos.reduce((sum, t) => sum + t.monthlyAmount, 0);
   const totalPagos = pagos.reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   document.getElementById("totals-bar").textContent =
@@ -357,7 +366,10 @@ function renderSummary() {
         const label = document.createElement("span");
         label.textContent = `${formatDate(t.date)} — ${t.description}${t.installment ? ` (cuota ${t.installment.current}/${t.installment.total})` : ""}`;
         const amountSpan = document.createElement("span");
-        amountSpan.textContent = formatMoney(t.amount);
+        amountSpan.textContent =
+          t.monthlyAmount !== t.amount
+            ? `${formatMoney(t.monthlyAmount)} (compra total: ${formatMoney(t.amount)})`
+            : formatMoney(t.amount);
         line.appendChild(label);
         line.appendChild(amountSpan);
         if (category === "Sin categorizar") {
@@ -392,7 +404,7 @@ function renderSummary() {
 }
 
 function sumAmounts(txs) {
-  return txs.reduce((sum, t) => sum + t.amount, 0);
+  return txs.reduce((sum, t) => sum + t.monthlyAmount, 0);
 }
 
 function formatDate(date) {
@@ -428,7 +440,7 @@ function renderProjection() {
       const key = `${year}-${String(month).padStart(2, "0")}`;
       (projection[key] = projection[key] || []).push({
         description: t.description,
-        amount: t.amount,
+        amount: t.monthlyAmount,
         installmentLabel: `${t.installment.current + i}/${t.installment.total}`
       });
     }
