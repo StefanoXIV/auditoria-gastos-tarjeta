@@ -2,6 +2,7 @@
 
 const STORAGE_KEYS = {
   categories: "gastos.categories.v1",
+  categoriesSeen: "gastos.categoriesSeen.v1",
   overrides: "gastos.merchantOverrides.v1",
   history: "gastos.history.v1"
 };
@@ -27,9 +28,38 @@ function saveHistorySnapshot(entry) {
 
 function loadCategories() {
   const stored = localStorage.getItem(STORAGE_KEYS.categories);
-  if (stored) return JSON.parse(stored);
-  localStorage.setItem(STORAGE_KEYS.categories, JSON.stringify(DEFAULT_CATEGORIES));
-  return JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+  const defaultNames = Object.keys(DEFAULT_CATEGORIES);
+  if (!stored) {
+    localStorage.setItem(STORAGE_KEYS.categories, JSON.stringify(DEFAULT_CATEGORIES));
+    localStorage.setItem(STORAGE_KEYS.categoriesSeen, JSON.stringify(defaultNames));
+    return JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+  }
+  const saved = JSON.parse(stored);
+  // "seen" registra qué categorías default existían la última vez que se guardó algo.
+  // Sirve para diferenciar una categoría default NUEVA (se agrega) de una que el
+  // usuario borró a propósito (se respeta la decisión, no se resucita).
+  const seen = new Set(JSON.parse(localStorage.getItem(STORAGE_KEYS.categoriesSeen) || "[]"));
+  let changed = false;
+  Object.entries(DEFAULT_CATEGORIES).forEach(([category, keywords]) => {
+    if (category in saved) {
+      // Categoría que el usuario ya tiene: sumar palabras clave nuevas que se
+      // agreguen en una actualización, sin duplicar ni tocar las que agregó él.
+      const existing = new Set(saved[category].map((k) => k.toLowerCase()));
+      keywords.forEach((kw) => {
+        if (!existing.has(kw.toLowerCase())) {
+          saved[category].push(kw);
+          existing.add(kw.toLowerCase());
+          changed = true;
+        }
+      });
+    } else if (!seen.has(category)) {
+      saved[category] = [...keywords];
+      changed = true;
+    }
+  });
+  if (changed) localStorage.setItem(STORAGE_KEYS.categories, JSON.stringify(saved));
+  localStorage.setItem(STORAGE_KEYS.categoriesSeen, JSON.stringify(defaultNames));
+  return saved;
 }
 
 function saveCategories(categories) {
@@ -307,6 +337,14 @@ document.getElementById("process-btn").addEventListener("click", () => {
     };
   });
 
+  // Pares de mismo monto con signo opuesto (compra + anulación/objeción/reversa): se marcan
+  // como outlier para excluirlos del total y de la proyección — el usuario los revisa aparte,
+  // no deben mezclarse con los gastos comunes del mes ni distorsionar sus categorías.
+  const flagged = new Set(detectSuspicious(state.transactions.filter((t) => !t.isInformational)));
+  state.transactions.forEach((t) => {
+    t.isOutlier = flagged.has(t);
+  });
+
   state.anchorMonth = document.getElementById("anchor-month").value;
   state.statementType = statementType;
 
@@ -318,10 +356,11 @@ document.getElementById("process-btn").addEventListener("click", () => {
   renderProjection();
 });
 
-// Gastos reales del período: se excluyen los pagos de tarjeta y los cargos
-// informativos "0/N" — lo mismo que se muestra en "Resumen del mes".
+// Gastos reales del período: se excluyen los pagos de tarjeta, los cargos
+// informativos "0/N" y los outliers (compras anuladas/objetadas) — lo mismo
+// que se muestra en "Resumen del mes".
 function computeCategoryTotals() {
-  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta" && !t.isInformational);
+  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta" && !t.isInformational && !t.isOutlier);
   const byCategory = {};
   gastos.forEach((t) => {
     byCategory[t.category] = (byCategory[t.category] || 0) + t.monthlyAmount;
@@ -334,7 +373,9 @@ function computeCategoryTotals() {
 
 function renderSuspicious() {
   const container = document.getElementById("suspicious-warning");
-  const flagged = detectSuspicious(state.transactions.filter((t) => !t.isInformational));
+  const flagged = state.transactions
+    .filter((t) => t.isOutlier)
+    .sort((a, b) => (a.date && b.date ? a.date - b.date : 0));
   if (!flagged.length) {
     container.classList.add("hidden");
     container.innerHTML = "";
@@ -344,7 +385,7 @@ function renderSuspicious() {
   const lines = flagged
     .map((t) => `<div>${formatDate(t.date)} — ${t.description} — ${formatMoney(t.amount)}</div>`)
     .join("");
-  container.innerHTML = `<strong>Revisa estos cargos:</strong> tienen el mismo monto con signo opuesto a otro cargo del resumen — podrían ser compras ya anuladas/reversadas, o cargos duplicados.${lines}`;
+  container.innerHTML = `<strong>Excluidos del total (posible anulación/objeción/duplicado):</strong> tienen el mismo monto con signo opuesto a otro cargo del resumen, así que se sacaron del total de gastos y de sus categorías. Revísalos igual, por si alguno no correspondía excluir.${lines}`;
 }
 
 function renderInformational() {
@@ -454,7 +495,7 @@ function renderSummary() {
   const tbody = document.querySelector("#summary-table tbody");
   tbody.innerHTML = "";
 
-  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta" && !t.isInformational);
+  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta" && !t.isInformational && !t.isOutlier);
   const pagos = state.transactions.filter((t) => t.category === "Pago de Tarjeta");
 
   const byCategory = {};
@@ -548,7 +589,7 @@ function renderProjection() {
   if (!anchorValue) return;
   const [anchorYear, anchorMonth] = anchorValue.split("-").map(Number);
 
-  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago de Tarjeta" && !t.isInformational);
+  const withInstallments = state.transactions.filter((t) => t.installment && t.category !== "Pago de Tarjeta" && !t.isInformational && !t.isOutlier);
 
   const projection = {}; // "YYYY-MM" -> [{description, amount}]
 

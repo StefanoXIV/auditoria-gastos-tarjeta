@@ -31,5 +31,6 @@ const DEFAULT_CATEGORIES = {
     "ticketmaster", "puntoticket"
   ],
   "Pago de Tarjeta": ["pago tarjeta", "pago su factura", "pago recibido", "pago minimo", "pago total", "abono tarjeta", "monto cancelado"],
+  "Mantención Tarjeta": ["comision administracion", "comision de mantencion", "mantencion tarjeta", "intereses rotativos"],
   "Otros": []
 };
