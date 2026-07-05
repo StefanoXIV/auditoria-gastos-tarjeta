@@ -7,6 +7,16 @@
   --accent: #2f6fed;
   --accent-hover: #2557c0;
   --danger: #d64545;
+
+  /* Paleta categórica (skill dataviz), orden fijo — cada categoría siempre el mismo color */
+  --series-1: #2a78d6;
+  --series-2: #1baf7a;
+  --series-3: #eda100;
+  --series-4: #008300;
+  --series-5: #4a3aa7;
+  --series-6: #e34948;
+  --series-7: #e87ba4;
+  --series-8: #eb6834;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +29,15 @@
     --accent: #4d8dff;
     --accent-hover: #6ba0ff;
     --danger: #ef6b6b;
+
+    --series-1: #3987e5;
+    --series-2: #199e70;
+    --series-3: #c98500;
+    --series-4: #008300;
+    --series-5: #9085e9;
+    --series-6: #e66767;
+    --series-7: #d55181;
+    --series-8: #d95926;
   }
 }
 
@@ -192,3 +211,65 @@ tr.category-row:hover { background: rgba(127,127,127,0.06); }
 }
 
 .new-category-row input { flex: 1; }
+
+.exec-hero {
+  margin-bottom: 16px;
+}
+
+.exec-total {
+  font-size: 2.25rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.exec-comparison {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.chart-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 160px) 1fr minmax(90px, auto);
+  align-items: center;
+  gap: 10px;
+}
+
+.chart-label {
+  font-size: 0.85rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-bar-track {
+  background: var(--border);
+  border-radius: 4px;
+  height: 18px;
+  overflow: hidden;
+}
+
+.chart-bar {
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.chart-value {
+  font-size: 0.85rem;
+  color: var(--text);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chart-pct {
+  color: var(--muted);
+}

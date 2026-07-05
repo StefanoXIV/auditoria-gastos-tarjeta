@@ -10,10 +10,15 @@ App web gratuita y 100% en el navegador (sin backend, sin login, sin costos) par
 2. Abre `index.html` (o la URL publicada) y sube el archivo.
 3. Confirma qué columna corresponde a Fecha, Descripción y Monto (la app intenta adivinarlo).
 4. Click en "Procesar gastos" para ver:
+   - Un resumen ejecutivo con el total del período, la comparación contra el mes anterior y un gráfico por categoría.
    - El resumen del mes por categoría.
    - La proyección de cuotas activas para los próximos meses.
 5. Los gastos sin categoría automática se pueden asignar manualmente — la próxima vez que subas un resumen con el mismo comercio, se va a categorizar solo.
 6. En "Gestionar categorías" puedes agregar, editar o borrar categorías y sus palabras clave.
+
+## Resumen ejecutivo y comparación mensual
+
+Cada vez que procesás un resumen, la app guarda un snapshot (mes + tipo de resumen + total + total por categoría) en `localStorage`. La próxima vez que subas el mes siguiente, el resumen ejecutivo va a mostrar cuánto gastaste comparado con el mes anterior. Reprocesar el mismo mes actualiza ese snapshot en vez de duplicarlo.
 
 ## Cómo funciona la categorización
 

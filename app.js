@@ -2,8 +2,28 @@
 
 const STORAGE_KEYS = {
   categories: "gastos.categories.v1",
-  overrides: "gastos.merchantOverrides.v1"
+  overrides: "gastos.merchantOverrides.v1",
+  history: "gastos.history.v1"
 };
+
+// Paleta categórica validada (skill dataviz) — orden fijo, nunca se reasigna por monto
+// para que cada categoría mantenga siempre el mismo color entre resúmenes. El slot 8
+// queda reservado para "Otros"/sin categorizar, para que nunca choque con una de estas 7.
+const CATEGORY_COLOR_ORDER = [
+  "Alimentación", "Delivery / Restaurantes", "Transporte", "Servicios / Suscripciones",
+  "Salud", "Compras / Retail", "Educación"
+];
+
+function loadHistory() {
+  const stored = localStorage.getItem(STORAGE_KEYS.history);
+  return stored ? JSON.parse(stored) : {};
+}
+
+function saveHistorySnapshot(entry) {
+  const history = loadHistory();
+  history[entry.key] = entry;
+  localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(history));
+}
 
 function loadCategories() {
   const stored = localStorage.getItem(STORAGE_KEYS.categories);
@@ -287,12 +307,28 @@ document.getElementById("process-btn").addEventListener("click", () => {
     };
   });
 
+  state.anchorMonth = document.getElementById("anchor-month").value;
+  state.statementType = statementType;
+
   resultsSection.classList.remove("hidden");
   renderSuspicious();
   renderInformational();
+  renderExecutiveSummary();
   renderSummary();
   renderProjection();
 });
+
+// Gastos reales del período: se excluyen los pagos de tarjeta y los cargos
+// informativos "0/N" — lo mismo que se muestra en "Resumen del mes".
+function computeCategoryTotals() {
+  const gastos = state.transactions.filter((t) => t.category !== "Pago de Tarjeta" && !t.isInformational);
+  const byCategory = {};
+  gastos.forEach((t) => {
+    byCategory[t.category] = (byCategory[t.category] || 0) + t.monthlyAmount;
+  });
+  const total = gastos.reduce((sum, t) => sum + t.monthlyAmount, 0);
+  return { byCategory, total };
+}
 
 // ---------- Cargos a revisar ----------
 
@@ -325,6 +361,91 @@ function renderInformational() {
     .map((t) => `<div>${formatDate(t.date)} — ${t.description} (cuota ${t.installment.current}/${t.installment.total}) — ${formatMoney(t.amount)}</div>`)
     .join("");
   container.innerHTML = `<strong>Sin incluir en el total (cuota "0 de N"):</strong> el resumen trae ${items.length} cargo(s) por ${formatMoney(total)} marcados con cuota 0, que parecen ser información aparte y no un cargo nuevo del período. Verifícalo con tu banco antes de asumir que están bien excluidos.${lines}`;
+}
+
+// ---------- Resumen ejecutivo ----------
+
+function previousMonthKey(anchorMonth, statementType) {
+  const [year, month] = anchorMonth.split("-").map(Number);
+  const prevMonthIndex = month - 1 - 1; // 0-indexado, un mes atrás
+  const prevYear = year + Math.floor(prevMonthIndex / 12);
+  const prevMonth = ((prevMonthIndex % 12) + 12) % 12;
+  const key = `${prevYear}-${String(prevMonth + 1).padStart(2, "0")}`;
+  return `${key}|${statementType}`;
+}
+
+function renderExecutiveSummary() {
+  const { byCategory, total } = computeCategoryTotals();
+  const anchorMonth = state.anchorMonth;
+  const statementType = state.statementType;
+
+  if (anchorMonth) {
+    saveHistorySnapshot({
+      key: `${anchorMonth}|${statementType}`,
+      anchorMonth,
+      statementType,
+      total,
+      byCategory,
+      savedAt: Date.now()
+    });
+  }
+
+  const heroEl = document.getElementById("exec-total");
+  heroEl.textContent = formatMoney(total);
+
+  const compEl = document.getElementById("exec-comparison");
+  const history = loadHistory();
+  const previous = anchorMonth ? history[previousMonthKey(anchorMonth, statementType)] : null;
+  if (!previous) {
+    compEl.textContent = "Aún no hay un mes anterior guardado para comparar — se guardó este resumen para la próxima vez.";
+  } else if (previous.total > 0) {
+    const delta = ((total - previous.total) / previous.total) * 100;
+    const arrow = delta >= 0 ? "▲" : "▼";
+    compEl.textContent =
+      `${arrow} ${Math.abs(delta).toFixed(0)}% ${delta >= 0 ? "más" : "menos"} que el mes anterior ` +
+      `(${formatMoney(total)} vs ${formatMoney(previous.total)})`;
+  } else {
+    compEl.textContent = "";
+  }
+
+  renderCategoryBarChart(byCategory, total);
+}
+
+function renderCategoryBarChart(byCategory, total) {
+  const container = document.getElementById("exec-chart");
+  container.innerHTML = "";
+  const entries = Object.entries(byCategory).filter(([, amount]) => amount > 0);
+  if (!entries.length || total <= 0) {
+    container.innerHTML = "<p class=\"hint\">Todavía no hay gastos para graficar.</p>";
+    return;
+  }
+  entries.sort((a, b) => b[1] - a[1]);
+
+  // Máximo 7 categorías propias en el gráfico + "Otros" agrupando el resto,
+  // por el tope de la paleta categórica (nunca se generan más de 8 colores).
+  const top = entries.slice(0, 7);
+  const rest = entries.slice(7);
+  if (rest.length) {
+    const restTotal = rest.reduce((sum, [, amount]) => sum + amount, 0);
+    top.push(["Otros", restTotal]);
+  }
+
+  const maxAmount = top[0][1];
+  top.forEach(([category, amount]) => {
+    const colorIndex = CATEGORY_COLOR_ORDER.indexOf(category);
+    const colorVar = colorIndex >= 0 ? `var(--series-${colorIndex + 1})` : "var(--series-8)";
+    const pct = total > 0 ? (amount / total) * 100 : 0;
+    const widthPct = maxAmount > 0 ? (amount / maxAmount) * 100 : 0;
+
+    const row = document.createElement("div");
+    row.className = "chart-row";
+    row.innerHTML = `
+      <div class="chart-label">${category}</div>
+      <div class="chart-bar-track"><div class="chart-bar" style="width:${widthPct}%; background:${colorVar}"></div></div>
+      <div class="chart-value">${formatMoney(amount)} <span class="chart-pct">(${pct.toFixed(0)}%)</span></div>
+    `;
+    container.appendChild(row);
+  });
 }
 
 // ---------- Resumen del mes ----------
